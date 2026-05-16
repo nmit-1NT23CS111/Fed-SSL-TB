@@ -1,7 +1,7 @@
 # Federated Self-Supervised Learning (FedSSL) for TB Detection
 
 > [!TIP]
-> **[📥 Download Documentation as Word (.docx)](file:///d:/Projects/Final%20Year%20Project/Federated-SSL/Federated_SSL_TB_Project_Documentation.docx)**
+> **[📥 Download Documentation as Word (.docx)](docs/Federated_SSL_Project_Study_Notes.docx)**
 
 A production-grade Federated Learning system for detecting Tuberculosis (TB) using Self-Supervised Pre-training (Masked Autoencoders) on large-scale Chest X-ray datasets.
 
@@ -47,7 +47,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 ```
 
 ### 2. Prepare Data
-Download the NIH, Shenzhen, and Montgomery datasets and place them in `data/raw/` as described in the [Documentation](PROJECT_DOCUMENTATION.md).
+Download the NIH, Shenzhen, and Montgomery datasets and place them in `data/raw/` as described in the [Documentation](docs/PROJECT_DOCUMENTATION.md).
 
 ### 3. Training
 To start a new simulation:
@@ -69,7 +69,7 @@ python evaluate_trained_model.py
 
 ## 📖 Learn More
 For a deep dive into the architecture, federated strategies, and physics of the model, see:
-👉 **[PROJECT_DOCUMENTATION.md](PROJECT_DOCUMENTATION.md)**
+👉 **[PROJECT_DOCUMENTATION.md](docs/PROJECT_DOCUMENTATION.md)**
 
 ---
 Developed as a Final Year Project for TB Detection across Federated Hospital Networks.
