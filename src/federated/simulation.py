@@ -168,7 +168,7 @@ def main():
     print(f"  Dry run       : {dry_run}")
     print(f"{'='*70}\n")
 
-    # ── Build datasets ───────────────────────────────────────────────────
+# --- Build datasets ---
     num_hospitals = config.data.num_hospitals
     image_size    = config.data.image_size
     batch_size    = config.ssl.batch_size
@@ -185,12 +185,12 @@ def main():
             config, num_hospitals, batch_size, image_size
         )
 
-    # ── Initialize server & global model ─────────────────────────────────
+# --- Initialize server & global model ---
     server = FederatedServer(config, device=device)
     global_model = server.initialize_global_model()
     logger = RoundLogger(config.logging.log_dir)
 
-    # ── Resume logic ─────────────────────────────────────────────────────
+# --- Resume logic ---
     start_round = 0
     if resume:
         ckpt_dir = Path(config.logging.checkpoint_dir)

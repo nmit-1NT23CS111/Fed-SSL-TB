@@ -1,5 +1,8 @@
 # Federated Self-Supervised Learning (FedSSL) for TB Detection
 
+> [!TIP]
+> **[📥 Download Documentation as Word (.docx)](file:///d:/Projects/Final%20Year%20Project/Federated-SSL/Federated_SSL_TB_Project_Documentation.docx)**
+
 A production-grade Federated Learning system for detecting Tuberculosis (TB) using Self-Supervised Pre-training (Masked Autoencoders) on large-scale Chest X-ray datasets.
 
 ## 🌟 Key Features
