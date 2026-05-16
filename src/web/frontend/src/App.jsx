@@ -108,6 +108,17 @@ const Dashboard = () => {
 
   const lastEval = metrics.findLast(m => m.eval_metrics);
 
+  const currentLoss = metrics.length > 0 ? metrics[metrics.length - 1].mean_ssl_loss.toFixed(4) : "N/A";
+  let lossTrend = null;
+  let trendIsGood = true;
+  if (metrics.length > 1) {
+    const curr = metrics[metrics.length - 1].mean_ssl_loss;
+    const prev = metrics[metrics.length - 2].mean_ssl_loss;
+    const diff = ((prev - curr) / prev) * 100;
+    lossTrend = `${diff > 0 ? '-' : '+'}${Math.abs(diff).toFixed(1)}%`;
+    trendIsGood = diff > 0; // Negative loss growth is good
+  }
+
   return (
     <div className="min-h-screen bg-[#05070a] text-slate-200 font-sans flex">
       <aside className="w-64 border-r border-slate-800 p-6 flex flex-col gap-8">
@@ -146,10 +157,10 @@ const Dashboard = () => {
         {activeTab === 'dashboard' && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <StatCard label="Best AUC" value={lastEval ? lastEval.eval_metrics.auc.toFixed(4) : "0.8942"} icon={Activity} trend="+5.2%" color="bg-blue-500" />
-              <StatCard label="Hospitals" value="5" icon={Network} color="bg-indigo-500" />
-              <StatCard label="Total Samples" value={metrics.length > 0 ? metrics.reduce((acc, r) => acc + r.sample_counts.reduce((a, b) => a + b, 0), 0).toLocaleString() : "233,590"} icon={Database} color="bg-emerald-500" />
-              <StatCard label="Round" value={`${metrics.length}/20`} icon={LayoutDashboard} color="bg-amber-500" />
+              <StatCard label="Global Loss" value={currentLoss} icon={Activity} trend={lossTrend} color={trendIsGood ? "bg-emerald-500" : "bg-red-500"} />
+              <StatCard label="Best AUC" value={lastEval ? lastEval.eval_metrics.auc.toFixed(4) : "N/A"} icon={Network} color="bg-indigo-500" />
+              <StatCard label="Total Samples" value={metrics.length > 0 ? `${(metrics[metrics.length - 1].sample_counts.reduce((a, b) => a + b, 0) / 1000).toFixed(0)}k / 112k` : "8k / 112k"} icon={Database} color="bg-blue-500" />
+              <StatCard label="Round" value={`${metrics.length}/10`} icon={LayoutDashboard} color="bg-amber-500" />
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               <div className="lg:col-span-2 bg-slate-900/50 border border-slate-800 rounded-3xl p-8">
@@ -271,7 +282,7 @@ const Dashboard = () => {
                 ))}
              </div>
              <h3 className="text-2xl font-bold text-white mb-4">Privacy-First Collaboration</h3>
-             <p className="text-slate-500 text-center max-w-lg">Zero raw data leaves the hospitals. Only encrypted model updates are sent to the central server for aggregation using the FedAvg protocol.</p>
+             <p className="text-slate-500 text-center max-w-lg">Zero raw data leaves the hospitals. Only encrypted model updates are sent to the central server for aggregation using the FedProx protocol to handle real-world clinical variances.</p>
           </div>
         )}
       </main>

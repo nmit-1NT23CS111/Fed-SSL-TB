@@ -95,6 +95,42 @@ class ViTSmallEncoder(nn.Module):
         return z
 
 
+class ViTTinyEncoder(nn.Module):
+    """
+    ViT-Tiny (patch16, 224) from timm.
+    Head replaced with Linear(192 → embed_dim).
+    """
+
+    def __init__(self, embed_dim: int = 192):
+        super().__init__()
+        try:
+            import timm
+        except ImportError:
+            raise ImportError("timm is required for ViT-Tiny encoder. pip install timm")
+
+        self.vit = timm.create_model(
+            "vit_tiny_patch16_224",
+            pretrained=False,
+            num_classes=0,  # Returns CLS token (192-dim)
+        )
+        vit_dim = self.vit.embed_dim   # 192 for vit_tiny
+        self.projection = nn.Linear(vit_dim, embed_dim)
+
+        self.embed_dim = embed_dim
+        self.feature_dim = vit_dim
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x : (B, C, 224, 224) image tensor
+        Returns:
+            z : (B, embed_dim) embedding
+        """
+        feat = self.vit(x)             # (B, 192)
+        z = self.projection(feat)      # (B, embed_dim)
+        return z
+
+
 # ─── Factory ─────────────────────────────────────────────────────────────────
 
 def get_encoder(backbone: str = "resnet50", embed_dim: int = 512) -> nn.Module:
@@ -102,19 +138,18 @@ def get_encoder(backbone: str = "resnet50", embed_dim: int = 512) -> nn.Module:
     Create and return the encoder backbone.
 
     Args:
-        backbone  : 'resnet50' or 'vit_small'
+        backbone  : 'resnet50', 'vit_small', or 'vit_tiny'
         embed_dim : Output embedding dimensionality
-
-    Returns:
-        nn.Module encoder
     """
     backbone = backbone.lower().strip()
 
     if backbone == "resnet50":
         return ResNet50Encoder(embed_dim=embed_dim)
-    elif backbone in ("vit_small", "vit-small", "vit"):
+    elif backbone in ("vit_small", "vit-small"):
         return ViTSmallEncoder(embed_dim=embed_dim)
+    elif backbone in ("vit_tiny", "vit-tiny", "tiny_vit"):
+        return ViTTinyEncoder(embed_dim=embed_dim)
     else:
         raise ValueError(
-            f"Unknown backbone '{backbone}'. Choose from: 'resnet50', 'vit_small'."
+            f"Unknown backbone '{backbone}'. Choose from: 'resnet50', 'vit_small', 'vit_tiny'."
         )

@@ -382,10 +382,13 @@ def _build_synthetic_hospital_loaders(num_hospitals, batch_size, image_size) -> 
 
 def _build_real_loaders(config, num_hospitals, batch_size, image_size):
     """Build real dataset loaders for NIH (split), Shenzhen, and Montgomery."""
+    # Read limit from config, fallback to 5000 if not set
+    limit_val = getattr(config.ssl, "limit_samples", 5000)
+
     nih_dataset = NIHDataset(
         root_dir=config.data.nih_path,
         image_size=image_size,
-        two_view=True,
+        limit=limit_val,
     )
 
     if len(nih_dataset) == 0:
@@ -393,6 +396,8 @@ def _build_real_loaders(config, num_hospitals, batch_size, image_size):
         print("Please ensure images are present. If you want to test the full pipeline without real data,")
         print("run the mock data generator:  python src/utils/generate_mock_data.py")
         sys.exit(1)
+    
+    print(f"Loaded NIH dataset with {len(nih_dataset)} images.")
 
     # Split NIH → hospitals (loads from disk if already computed)
     processed_dir = "data/processed"
@@ -420,10 +425,12 @@ def _build_real_loaders(config, num_hospitals, batch_size, image_size):
             hospital_indices_list.append(indices)
     else:
         print("[Splitter] Computing hospital splits...")
+        alpha_val = getattr(config.data, "split_alpha", 0.5)
         hospital_indices_list = split_nih_to_hospitals(
             dataset=nih_dataset,
             num_hospitals=num_hospitals,
             strategy=config.data.split_strategy,
+            alpha=alpha_val,
             save_dir=processed_dir,
         )
 

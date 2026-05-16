@@ -63,20 +63,8 @@ class TwoViewTransform:
 
 class NIHDataset(Dataset):
     """
-    Loads chest X-ray images from the NIH ChestX-ray14 dataset.
-    Labels are NOT loaded — used only for unlabeled SSL pretraining.
-
-    Expected directory layout:
-        root_dir/
-            images/
-                *.png  (or *.jpg)
-
-    Args:
-        root_dir   : Path to the NIH dataset root (e.g., data/raw/NIH/)
-        transform  : Optional callable transform. If None, uses TwoViewTransform
-                     with the base augmentation (for SSL two-view crops).
-        image_size : Image resize target.
-        two_view   : If True, returns (view1, view2) tuple instead of single tensor.
+    Loads images from the NIH Chest X-ray dataset for Self-Supervised Learning.
+    Supports recursive scanning across images_001, images_002, etc.
     """
 
     def __init__(
@@ -84,50 +72,49 @@ class NIHDataset(Dataset):
         root_dir: str,
         transform: Optional[Callable] = None,
         image_size: int = 224,
-        two_view: bool = True,
+        limit: Optional[int] = 5000,
     ):
         self.root_dir = Path(root_dir)
-        self.two_view = two_view
-
-        # Collect all image files
+        self.transform = transform or get_base_transform(image_size)
         self.image_paths: List[Path] = []
+
+        print(f"Scanning NIH dataset in {self.root_dir}...")
+        
+        # Search recursively for all images
+        all_found = []
         for ext in ("*.png", "*.jpg", "*.jpeg"):
-            self.image_paths.extend(sorted(self.root_dir.glob(f"**/{ext}")))
-
-        if len(self.image_paths) == 0:
-            # Allow empty dataset (for dry-run / testing)
-            print(f"[WARNING] NIHDataset: no images found in {root_dir}")
-
-        if transform is not None:
-            self.transform = transform
-        elif two_view:
-            self.transform = TwoViewTransform(get_base_transform(image_size))
+            all_found.extend(list(self.root_dir.rglob(ext)))
+        
+        all_found.sort()
+        if limit and len(all_found) > limit:
+            step = len(all_found) // limit
+            self.image_paths = all_found[::step][:limit]
+            print(f"Limited NIH to {len(self.image_paths)} images for performance.")
         else:
-            self.transform = get_base_transform(image_size)
+            self.image_paths = all_found
+            print(f"Found {len(self.image_paths)} NIH images.")
 
     def __len__(self) -> int:
         return len(self.image_paths)
 
-    def __getitem__(self, idx: int):
-        img_path = self.image_paths[idx]
-        img = Image.open(img_path).convert("RGB")
-        return self.transform(img)
+    def __getitem__(self, idx: int) -> torch.Tensor:
+        try:
+            img_path = self.image_paths[idx]
+            image = Image.open(img_path).convert("RGB")
+            if self.transform:
+                image = self.transform(image)
+            return image
+        except Exception as e:
+            print(f"Error loading {self.image_paths[idx]}: {e}")
+            return torch.zeros(3, 224, 224)
 
 
 # ─── Shenzhen TB Dataset ─────────────────────────────────────────────────────
 
 class ShenzhenDataset(Dataset):
     """
-    Loads images + binary labels from the Shenzhen TB dataset.
-    Label: 0 = Normal, 1 = TB (Tuberculosis-positive)
-
-    Expected directory layout (two sub-folders):
-        root_dir/
-            TB/       ← TB positive images
-            Normal/   ← Normal images
-
-    If sub-folders don't exist, falls back to a flat directory
-    and reads labels from filenames (CXR_*_1.png → TB, CXR_*_0.png → Normal).
+    Smart loader for the Shenzhen TB dataset.
+    Detects labels from filenames: _0.png (Normal), _1.png (TB).
     """
 
     def __init__(
@@ -135,52 +122,38 @@ class ShenzhenDataset(Dataset):
         root_dir: str,
         transform: Optional[Callable] = None,
         image_size: int = 224,
-        split: str = "all",   # "all", "train", "val"
+        split: str = "all",
     ):
         self.root_dir = Path(root_dir)
         self.transform = transform or get_base_transform(image_size)
         self.image_paths: List[Path] = []
         self.labels: List[int] = []
 
-        tb_dir = self.root_dir / "TB"
-        normal_dir = self.root_dir / "Normal"
+        all_imgs = []
+        for ext in ("*.png", "*.jpg"):
+            all_imgs.extend(list(self.root_dir.rglob(ext)))
+        
+        for p in sorted(all_imgs):
+            name = p.stem
+            if name.endswith("_0"):
+                self.labels.append(0)
+                self.image_paths.append(p)
+            elif name.endswith("_1"):
+                self.labels.append(1)
+                self.image_paths.append(p)
 
-        if tb_dir.exists() and normal_dir.exists():
-            # Sub-folder layout
-            for ext in ("*.png", "*.jpg", "*.jpeg"):
-                for p in sorted(tb_dir.glob(f"**/{ext}")):
-                    self.image_paths.append(p)
-                    self.labels.append(1)
-                for p in sorted(normal_dir.glob(f"**/{ext}")):
-                    self.image_paths.append(p)
-                    self.labels.append(0)
-        else:
-            # Flat layout: infer label from filename suffix (_1 = TB, _0 = Normal)
-            for ext in ("*.png", "*.jpg", "*.jpeg"):
-                for p in sorted(self.root_dir.glob(f"**/{ext}")):
-                    name = p.stem
-                    if name.endswith("_1") or "_1" in name[-3:]:
-                        label = 1
-                    elif name.endswith("_0") or "_0" in name[-3:]:
-                        label = 0
-                    else:
-                        continue   # Skip unrecognized files
-                    self.image_paths.append(p)
-                    self.labels.append(label)
-
-        if len(self.image_paths) == 0:
-            print(f"[WARNING] ShenzhenDataset: no images found in {root_dir}")
+        print(f"Shenzhen Dataset: Found {len(self.image_paths)} images.")
 
     def __len__(self) -> int:
         return len(self.image_paths)
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
-        img = Image.open(self.image_paths[idx]).convert("RGB")
-        label = self.labels[idx]
-        return self.transform(img), label
+        image = Image.open(self.image_paths[idx]).convert("RGB")
+        if self.transform:
+            image = self.transform(image)
+        return image, self.labels[idx]
 
     def get_labels(self) -> List[int]:
-        """Return the full label list (useful for k-shot sampling)."""
         return self.labels
 
 
@@ -188,15 +161,8 @@ class ShenzhenDataset(Dataset):
 
 class MontgomeryDataset(Dataset):
     """
-    Loads images + binary labels from the Montgomery TB dataset.
-    Label: 0 = Normal, 1 = TB
-
-    Expected directory layout:
-        root_dir/
-            TB/       ← TB positive
-            Normal/   ← Normal
-
-    Falls back to flat-dir filename inference (_1 / _0) if sub-folders absent.
+    Smart loader for the Montgomery TB dataset.
+    Detects labels from filenames: _0.png (Normal), _1.png (TB).
     """
 
     def __init__(
@@ -204,45 +170,36 @@ class MontgomeryDataset(Dataset):
         root_dir: str,
         transform: Optional[Callable] = None,
         image_size: int = 224,
+        split: str = "all",
     ):
         self.root_dir = Path(root_dir)
-        self.transform = transform or get_eval_transform(image_size)
+        self.transform = transform or get_base_transform(image_size)
         self.image_paths: List[Path] = []
         self.labels: List[int] = []
 
-        tb_dir = self.root_dir / "TB"
-        normal_dir = self.root_dir / "Normal"
+        all_imgs = []
+        for ext in ("*.png", "*.jpg"):
+            all_imgs.extend(list(self.root_dir.rglob(ext)))
+        
+        for p in sorted(all_imgs):
+            name = p.stem
+            if name.endswith("_0"):
+                self.labels.append(0)
+                self.image_paths.append(p)
+            elif name.endswith("_1"):
+                self.labels.append(1)
+                self.image_paths.append(p)
 
-        if tb_dir.exists() and normal_dir.exists():
-            for ext in ("*.png", "*.jpg", "*.jpeg"):
-                for p in sorted(tb_dir.glob(f"**/{ext}")):
-                    self.image_paths.append(p)
-                    self.labels.append(1)
-                for p in sorted(normal_dir.glob(f"**/{ext}")):
-                    self.image_paths.append(p)
-                    self.labels.append(0)
-        else:
-            for ext in ("*.png", "*.jpg", "*.jpeg"):
-                for p in sorted(self.root_dir.glob(f"**/{ext}")):
-                    name = p.stem
-                    if name.endswith("_1") or "_1" in name[-3:]:
-                        label = 1
-                    elif name.endswith("_0") or "_0" in name[-3:]:
-                        label = 0
-                    else:
-                        continue
-                    self.image_paths.append(p)
-                    self.labels.append(label)
-
-        if len(self.image_paths) == 0:
-            print(f"[WARNING] MontgomeryDataset: no images found in {root_dir}")
+        print(f"Montgomery Dataset: Found {len(self.image_paths)} images.")
 
     def __len__(self) -> int:
         return len(self.image_paths)
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
-        img = Image.open(self.image_paths[idx]).convert("RGB")
-        return self.transform(img), self.labels[idx]
+        image = Image.open(self.image_paths[idx]).convert("RGB")
+        if self.transform:
+            image = self.transform(image)
+        return image, self.labels[idx]
 
     def get_labels(self) -> List[int]:
         return self.labels
