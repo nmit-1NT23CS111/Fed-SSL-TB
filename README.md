@@ -12,7 +12,19 @@ A production-grade Federated Learning system for detecting Tuberculosis (TB) usi
 - **GPU Optimized**: Full support for NVIDIA CUDA (tested on RTX 2050/3050).
 - **Scale**: Verified on the **46,718 image** NIH Clinical Center dataset.
 
-## 📊 Current Milestone Results
+## 📊 Datasets
+This project utilizes three major chest X-ray datasets. Note that due to their large size (**~47GB total**), these are excluded from Git tracking via `.gitignore`.
+
+| Dataset | Purpose | Images | Total Size |
+| :--- | :--- | :--- | :--- |
+| **NIH ChestX-ray14** | Federated SSL Pre-training (Unlabeled) | 46,718 | ~43.0 GB |
+| **Shenzhen TB** | 5-Shot Fine-tuning (Labeled) | 662 | ~3.6 GB |
+| **Montgomery TB** | Final Evaluation (Never seen in training) | 138 | ~0.6 GB |
+
+> [!IMPORTANT]
+> You must download these datasets manually and place them in the `data/raw/` directory structure as defined in the [Documentation](PROJECT_DOCUMENTATION.md).
+
+## 📈 Current Milestone Results
 | Metric | Score (Round 3) |
 | :--- | :--- |
 | **AUC** | **0.8942** |
