@@ -159,8 +159,8 @@ const Dashboard = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <StatCard label="Global Loss" value={currentLoss} icon={Activity} trend={lossTrend} color={trendIsGood ? "bg-emerald-500" : "bg-red-500"} />
               <StatCard label="Best AUC" value={lastEval ? lastEval.eval_metrics.auc.toFixed(4) : "N/A"} icon={Network} color="bg-indigo-500" />
-              <StatCard label="Total Samples" value={metrics.length > 0 ? `${(metrics[metrics.length - 1].sample_counts.reduce((a, b) => a + b, 0) / 1000).toFixed(0)}k / 112k` : "8k / 112k"} icon={Database} color="bg-blue-500" />
-              <StatCard label="Round" value={`${metrics.length}/10`} icon={LayoutDashboard} color="bg-amber-500" />
+              <StatCard label="Total Samples" value={metrics.length > 0 ? `${(metrics[metrics.length - 1].sample_counts.reduce((a, b) => a + b, 0) / 1000).toFixed(0)}k / 112k` : "20k / 112k"} icon={Database} color="bg-blue-500" />
+              <StatCard label="Round" value={`${metrics.length}/20`} icon={LayoutDashboard} color="bg-amber-500" />
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               <div className="lg:col-span-2 bg-slate-900/50 border border-slate-800 rounded-3xl p-8">
@@ -183,17 +183,24 @@ const Dashboard = () => {
                   </ResponsiveContainer>
                 </div>
               </div>
-              <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-8">
-                <h3 className="text-xl font-bold text-white mb-6">Latest Accuracy</h3>
-                {lastEval ? (
-                  <div className="space-y-6">
-                    <div className="text-5xl font-black text-blue-500">{(lastEval.eval_metrics.auc * 100).toFixed(1)}% <span className="text-sm text-slate-500 font-normal">AUC</span></div>
-                    <div className="space-y-3">
-                      <div className="flex justify-between text-sm"><span className="text-slate-400">Accuracy</span><span className="text-white font-bold">{(lastEval.eval_metrics.accuracy * 100).toFixed(1)}%</span></div>
-                      <div className="flex justify-between text-sm"><span className="text-slate-400">F1 Score</span><span className="text-white font-bold">{(lastEval.eval_metrics.f1 * 100).toFixed(1)}%</span></div>
-                    </div>
+              <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-8 flex flex-col justify-between">
+                <div>
+                  <div className="flex justify-between items-start mb-6">
+                    <h3 className="text-xl font-bold text-white">Few-Shot Progress</h3>
+                    <span className="text-[10px] uppercase tracking-wider font-bold bg-blue-500/20 text-blue-400 px-2 py-1 rounded">5-Shot Inference</span>
                   </div>
-                ) : <p className="text-slate-600">No evaluation data yet.</p>}
+                  {lastEval ? (
+                    <div className="space-y-6">
+                      <div className="text-5xl font-black text-blue-500">{(lastEval.eval_metrics.auc * 100).toFixed(1)}% <span className="text-sm text-slate-500 font-normal">AUC</span></div>
+                      <div className="space-y-3">
+                        <div className="flex justify-between text-sm"><span className="text-slate-400">Accuracy</span><span className="text-emerald-400 font-bold">{(lastEval.eval_metrics.accuracy * 100).toFixed(1)}%</span></div>
+                        <div className="flex justify-between text-sm"><span className="text-slate-400">Sensitivity <span className="text-[10px] text-slate-600">(TB Caught)</span></span><span className="text-white font-bold">{(lastEval.eval_metrics.sensitivity * 100).toFixed(1)}%</span></div>
+                        <div className="flex justify-between text-sm"><span className="text-slate-400">Specificity <span className="text-[10px] text-slate-600">(Healthy Caught)</span></span><span className="text-white font-bold">{(lastEval.eval_metrics.specificity * 100).toFixed(1)}%</span></div>
+                        <div className="flex justify-between text-sm"><span className="text-slate-400">F1 Score</span><span className="text-white font-bold">{(lastEval.eval_metrics.f1 * 100).toFixed(1)}%</span></div>
+                      </div>
+                    </div>
+                  ) : <p className="text-slate-600">Awaiting Round 5 Evaluation...</p>}
+                </div>
               </div>
             </div>
           </div>
@@ -271,18 +278,122 @@ const Dashboard = () => {
         )}
 
         {activeTab === 'federated' && (
-          <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-12 flex flex-col items-center">
-             <div className="relative w-96 h-96 mb-12">
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-20 w-20 bg-blue-600 rounded-full flex items-center justify-center shadow-[0_0_40px_rgba(37,99,235,0.4)] z-10 border-4 border-slate-900"><Cloud size={32} /></div>
-                {[0, 72, 144, 216, 288].map((a, i) => (
-                  <div key={i} className="absolute w-12 h-12 bg-slate-800 rounded-xl border border-slate-700 flex items-center justify-center transition-all hover:border-blue-500" style={{ 
-                    top: `calc(50% + ${Math.sin(a*Math.PI/180)*140}px - 24px)`, 
-                    left: `calc(50% + ${Math.cos(a*Math.PI/180)*140}px - 24px)` 
-                  }}><Database size={20} /></div>
-                ))}
+          <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-12 flex flex-col items-center justify-center min-h-[600px]">
+             <div className="relative w-[500px] h-[500px] mb-12 flex items-center justify-center">
+                {/* Central Cloud */}
+                <div className="absolute h-24 w-24 bg-blue-600 rounded-full flex items-center justify-center shadow-[0_0_60px_rgba(37,99,235,0.6)] z-20 border-4 border-slate-900 animate-pulse">
+                  <Cloud size={40} className="text-white" />
+                </div>
+                
+                {/* Hospital Nodes and Data Lines */}
+                {[0, 72, 144, 216, 288].map((a, i) => {
+                  const radius = 200;
+                  const top = `calc(50% + ${Math.sin(a*Math.PI/180)*radius}px - 28px)`;
+                  const left = `calc(50% + ${Math.cos(a*Math.PI/180)*radius}px - 28px)`;
+                  
+                  return (
+                    <React.Fragment key={i}>
+                      {/* Connection Line */}
+                      <div className="absolute top-1/2 left-1/2 w-full h-0.5 bg-slate-800 origin-left z-0" style={{
+                        width: `${radius}px`,
+                        transform: `rotate(${a}deg)`
+                      }}>
+                        {/* Animated Data Packet */}
+                        <div className="absolute top-[-3px] left-0 w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,1)] z-10" style={{
+                          animation: `ping-pong 3s ease-in-out infinite ${i * 0.4}s`
+                        }}></div>
+                      </div>
+                      
+                      {/* Hospital Node */}
+                      <div className="absolute w-14 h-14 bg-slate-800 rounded-2xl border-2 border-slate-700 flex items-center justify-center z-10 transition-all hover:border-emerald-500 hover:scale-110 shadow-xl" style={{ top, left }}>
+                        <Database size={24} className="text-emerald-500" />
+                        <div className="absolute -bottom-8 text-xs font-bold text-slate-400 bg-slate-900 px-2 py-1 rounded-lg border border-slate-800">Hospital {i+1}</div>
+                      </div>
+                    </React.Fragment>
+                  );
+                })}
              </div>
-             <h3 className="text-2xl font-bold text-white mb-4">Privacy-First Collaboration</h3>
-             <p className="text-slate-500 text-center max-w-lg">Zero raw data leaves the hospitals. Only encrypted model updates are sent to the central server for aggregation using the FedProx protocol to handle real-world clinical variances.</p>
+             
+             {/* Global Animation Styles */}
+             <style dangerouslySetInnerHTML={{__html: `
+               @keyframes ping-pong {
+                 0% { left: 100%; opacity: 0; }
+                 10% { opacity: 1; }
+                 40% { left: 0%; opacity: 1; background-color: #3b82f6; box-shadow: 0 0 10px rgba(59,130,246,1); }
+                 50% { left: 0%; opacity: 0; }
+                 60% { left: 0%; opacity: 1; background-color: #10b981; box-shadow: 0 0 10px rgba(16,185,129,1); }
+                 90% { left: 100%; opacity: 1; }
+                 100% { left: 100%; opacity: 0; }
+               }
+             `}} />
+
+             <div className="text-center max-w-2xl bg-slate-800/50 p-8 rounded-2xl border border-slate-700">
+               <h3 className="text-3xl font-black text-white mb-4 flex items-center justify-center gap-3"><ShieldCheck className="text-blue-500"/> Privacy-First Collaboration</h3>
+               <p className="text-slate-400 text-lg leading-relaxed">
+                 Zero raw patient data leaves the hospital boundaries. Only mathematically encrypted model weights (the green packets) are sent to the central server. The global model aggregates this intelligence using the <span className="text-blue-400 font-bold">FedProx</span> protocol, and sends the upgraded "Brain" back to the hospitals (the blue packets).
+               </p>
+             </div>
+          </div>
+        )}
+
+        {activeTab === 'requirements' && (
+          <div className="space-y-8 animate-in fade-in duration-500">
+            <div className="bg-gradient-to-r from-blue-900/50 to-indigo-900/50 border border-blue-500/30 rounded-3xl p-10 text-center">
+              <h2 className="text-4xl font-black text-white mb-4">System Architecture & Specifications</h2>
+              <p className="text-blue-300 text-lg">Technical backbone powering the Federated TB Detection Platform.</p>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-8 hover:border-slate-600 transition-all">
+                <div className="flex items-center gap-4 mb-6">
+                  <div className="p-4 bg-slate-800 rounded-2xl"><Network className="text-blue-500" size={32}/></div>
+                  <h3 className="text-2xl font-bold text-white">AI Architecture</h3>
+                </div>
+                <ul className="space-y-4">
+                  <li className="flex justify-between items-center border-b border-slate-800 pb-3"><span className="text-slate-400">Backbone Model</span><span className="font-bold text-white">Vision Transformer (ViT-Tiny)</span></li>
+                  <li className="flex justify-between items-center border-b border-slate-800 pb-3"><span className="text-slate-400">Pre-training Method</span><span className="font-bold text-white">Masked Autoencoder (MAE)</span></li>
+                  <li className="flex justify-between items-center border-b border-slate-800 pb-3"><span className="text-slate-400">Federated Strategy</span><span className="font-bold text-white">FedProx (<span className="text-blue-400">μ = 0.01</span>)</span></li>
+                  <li className="flex justify-between items-center pb-3"><span className="text-slate-400">Classification Head</span><span className="font-bold text-white">Prototypical Network (Few-Shot)</span></li>
+                </ul>
+              </div>
+
+              <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-8 hover:border-slate-600 transition-all">
+                <div className="flex items-center gap-4 mb-6">
+                  <div className="p-4 bg-slate-800 rounded-2xl"><Database className="text-emerald-500" size={32}/></div>
+                  <h3 className="text-2xl font-bold text-white">Data Ecosystem</h3>
+                </div>
+                <ul className="space-y-4">
+                  <li className="flex justify-between items-center border-b border-slate-800 pb-3"><span className="text-slate-400">Unsupervised Pre-training</span><span className="font-bold text-white">NIH Chest X-ray (20,000 imgs)</span></li>
+                  <li className="flex justify-between items-center border-b border-slate-800 pb-3"><span className="text-slate-400">Few-Shot Support Set</span><span className="font-bold text-white">Shenzhen (5-Shot/Class)</span></li>
+                  <li className="flex justify-between items-center border-b border-slate-800 pb-3"><span className="text-slate-400">Validation & Test Set</span><span className="font-bold text-white">Montgomery County (138 imgs)</span></li>
+                  <li className="flex justify-between items-center pb-3"><span className="text-slate-400">Data Distribution Skew</span><span className="font-bold text-white">Dirichlet Non-IID (<span className="text-emerald-400">α = 2.0</span>)</span></li>
+                </ul>
+              </div>
+
+              <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-8 hover:border-slate-600 transition-all md:col-span-2">
+                <div className="flex items-center gap-4 mb-6">
+                  <div className="p-4 bg-slate-800 rounded-2xl"><Settings className="text-amber-500" size={32}/></div>
+                  <h3 className="text-2xl font-bold text-white">Hardware & Performance Constraints</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700">
+                    <div className="text-slate-400 text-sm font-bold mb-1">COMPUTE ENGINE</div>
+                    <div className="text-xl font-black text-white">NVIDIA RTX 2050</div>
+                    <div className="text-amber-500 text-sm mt-2">CUDA Accelerated</div>
+                  </div>
+                  <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700">
+                    <div className="text-slate-400 text-sm font-bold mb-1">MEMORY CONSTRAINT</div>
+                    <div className="text-xl font-black text-white">4 GB VRAM</div>
+                    <div className="text-emerald-500 text-sm mt-2">Micro-batching (BS=4)</div>
+                  </div>
+                  <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700">
+                    <div className="text-slate-400 text-sm font-bold mb-1">IMAGE RESOLUTION</div>
+                    <div className="text-xl font-black text-white">224 x 224 pixels</div>
+                    <div className="text-blue-500 text-sm mt-2">Bilinear Interpolation</div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </main>

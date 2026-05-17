@@ -19,11 +19,11 @@ ssl:
   epochs_per_round: 1
   batch_size: 4
   lr: 0.0001
-  limit_samples: 8000   # Final run: 8,000 images
+  limit_samples: 20000  # Ultimate run: 20,000 images
   optimizer: adamw
 
 federated:
-  rounds: 10            # Final run: 10 rounds
+  rounds: 20            # Ultimate run: 20 rounds
   aggregation: fedprox       # options: fedavg, fedprox
   fedprox_mu: 0.01
 

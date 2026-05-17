@@ -137,9 +137,7 @@ class PrototypicalHead(nn.Module):
                 )
             prototypes = self.prototypes
 
-        # Project query embeddings into the metric space
-        query_embeddings = self.projection(query_embeddings)
-
+        # Removed rogue random projection layer to ensure math aligns perfectly
         return self._prototypical_logits(query_embeddings, prototypes)
 
     def _prototypical_logits(
@@ -156,10 +154,16 @@ class PrototypicalHead(nn.Module):
         Returns:
             probs : (B, C) — softmax probabilities
         """
-        # Broadcast: (B, 1, D) - (1, C, D) → (B, C, D)
-        diffs = queries.unsqueeze(1) - protos.unsqueeze(0)  # (B, C, D)
-        sq_dists = (diffs ** 2).sum(dim=-1)                  # (B, C)
-        logits = -sq_dists                                   # negative distance as logit
+        # L2 Normalize queries and prototypes to prevent magnitude explosion
+        queries_norm = F.normalize(queries, p=2, dim=-1)
+        protos_norm = F.normalize(protos, p=2, dim=-1)
+        
+        # Compute Cosine Similarity (dot product of normalized vectors)
+        # queries_norm: (B, D), protos_norm: (C, D) -> cos_sim: (B, C)
+        cos_sim = torch.matmul(queries_norm, protos_norm.T)
+        
+        # Scale by a high temperature factor (e.g., 100.0) to give highly confident, non-noisy probabilities
+        logits = cos_sim * 100.0                                 
         probs = F.softmax(logits, dim=-1)                    # (B, C)
         return probs
 

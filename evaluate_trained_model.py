@@ -17,13 +17,19 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    # 1. Load the best encoder checkpoint
-    ckpt_path = "experiments/checkpoints/encoder_round_002.pt"
-    if not Path(ckpt_path).exists():
-        print(f"Error: Checkpoint {ckpt_path} not found.")
+    # 1. Load the latest encoder checkpoint dynamically
+    ckpt_dir = Path("experiments/checkpoints")
+    ckpts = list(ckpt_dir.glob("encoder_round_*.pt"))
+    if not ckpts:
+        print(f"Error: No checkpoints found in {ckpt_dir}.")
         return
 
-    print(f"Loading checkpoint: {ckpt_path}")
+    # Sort by round number and pick the latest
+    ckpts.sort(key=lambda x: int(x.stem.split("_")[-1]))
+    ckpt_path = ckpts[-1]
+    round_num = int(ckpt_path.stem.split("_")[-1]) + 1 # 0-indexed to 1-indexed
+
+    print(f"\n[System] Found latest model: {ckpt_path.name} (Round {round_num})")
     checkpoint = torch.load(ckpt_path, map_location=device)
     
     # 2. Re-build the MAE and load encoder weights
@@ -87,11 +93,21 @@ def main():
         y_true = torch.cat(all_labels).numpy()
         
         metrics = evaluate(y_true, y_pred)
-        print("\n" + "="*50)
-        print(" FINAL PROJECT EVALUATION RESULTS (Round 3)")
-        print("="*50)
-        print(f" Montgomery Test Set: {format_metrics(metrics)}")
-        print("="*50)
+        
+        print("\n" + "═"*60)
+        print(" 🎓 FINAL PROJECT EVALUATION RESULTS (Few-Shot Inference)")
+        print("═"*60)
+        print(f" Model           : ViT-Tiny (Masked Autoencoder)")
+        print(f" Pre-training    : {config.ssl.limit_samples} Images | {round_num} Global Rounds")
+        print(f" Few-Shot Setup  : {k}-Shot Learning (Shenzhen Support Set)")
+        print(f" Test Set        : Montgomery TB Dataset (138 Images)")
+        print("-" * 60)
+        print(f" 🎯 AUC Score     : {metrics['auc']:.4f}")
+        print(f" ✅ Accuracy      : {metrics['accuracy']:.4f}")
+        print(f" 🔍 Sensitivity   : {metrics['sensitivity']:.4f}")
+        print(f" 🛡️ Specificity   : {metrics['specificity']:.4f}")
+        print(f" ⚖️ F1 Score      : {metrics['f1']:.4f}")
+        print("═"*60 + "\n")
     else:
         print("Error: Could not extract embeddings for evaluation.")
 

@@ -42,20 +42,25 @@ async def load_models():
     global encoder, proto_head
     print(f"Loading models to {device}...")
     
-    # 1. Load Encoder
+    # 1. Load Encoder dynamically (find latest round)
     encoder = get_encoder(config.model.backbone, config.model.embed_dim)
-    checkpoint_path = Path(config.logging.checkpoint_dir) / "best_encoder.pt"
+    ckpt_dir = Path(config.logging.checkpoint_dir)
+    ckpts = list(ckpt_dir.glob("encoder_round_*.pt"))
     
     checkpoint = None
-    if checkpoint_path.exists():
-        checkpoint = torch.load(checkpoint_path, map_location=device)
+    if ckpts:
+        # Sort by round number and pick the latest
+        ckpts.sort(key=lambda x: int(x.stem.split("_")[-1]))
+        latest_ckpt = ckpts[-1]
+        
+        checkpoint = torch.load(latest_ckpt, map_location=device)
         if "encoder_state_dict" in checkpoint:
             encoder.load_state_dict(checkpoint["encoder_state_dict"])
         else:
             encoder.load_state_dict(checkpoint)
-        print(f"Encoder loaded from {checkpoint_path}")
+        print(f"Encoder dynamically loaded from {latest_ckpt}")
     else:
-        print(f"WARNING: No checkpoint found at {checkpoint_path}. Using random weights.")
+        print(f"WARNING: No checkpoints found in {ckpt_dir}. Using random weights.")
     
     encoder.to(device)
     encoder.eval()
@@ -74,6 +79,7 @@ async def load_models():
             # Load 5-shot support set to compute prototypes (FR3)
             support_ds = ShenzhenDataset(
                 root_dir=config.data.shenzhen_path, 
+                transform=transform,
                 image_size=config.data.image_size
             )
             # Take first few samples per class
