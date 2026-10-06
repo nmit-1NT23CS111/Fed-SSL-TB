@@ -28,9 +28,9 @@ federated:
   fedprox_mu: 0.01
 
 finetuning:
-  few_shot_k: 20             # 20-shot = 20 samples per class, 40 total for binary TB
+  few_shot_k: 5             # 5-shot = 5 samples per class, 10 total for binary TB
   projection_dim: 128
-  epochs: 30
+  epochs: 100
   lr: 1.0e-3
   freeze_encoder: true
   seed: 42

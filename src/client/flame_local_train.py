@@ -2,10 +2,13 @@
 
 from typing import Any, Dict, Optional
 
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
+
+from src.utils.metrics import evaluate
 
 
 def _images(batch):
@@ -24,6 +27,8 @@ def flame_local_train(
     model: nn.Module,
     unlabeled_loader: DataLoader,
     support_loader: DataLoader,
+    proto_train_query_loader: DataLoader,
+    eval_query_loader: DataLoader,
     config,
     global_weights: Optional[Dict[str, Dict[str, Any]]] = None,
     device: Optional[torch.device] = None,
@@ -44,6 +49,9 @@ def flame_local_train(
     support_images, support_labels = next(iter(support_loader))
     support_images = support_images.to(device)
     support_labels = torch.as_tensor(support_labels, device=device).long()
+    proto_query_images, proto_query_labels = next(iter(proto_train_query_loader))
+    proto_query_images = proto_query_images.to(device)
+    proto_query_labels = torch.as_tensor(proto_query_labels, device=device).long()
     epoch_records = []
 
     for _ in range(int(config.ssl.epochs_per_round)):
@@ -57,11 +65,9 @@ def flame_local_train(
             prototypes = model.proto_head.compute_prototypes(
                 support_embeddings, support_labels
             )
-            # The local support episode is the labeled query set in this compact
-            # implementation; this keeps every NIH iteration jointly supervised.
-            query_embeddings = support_embeddings
+            train_query_embeddings = model.encoder(proto_query_images)
             proto_loss, _ = model.proto_head.prototypical_loss(
-                query_embeddings, support_labels, prototypes
+                train_query_embeddings, proto_query_labels, prototypes
             )
             total_loss = joint_loss(mae_loss, proto_loss, alpha)
             if is_fedprox:
@@ -81,11 +87,27 @@ def flame_local_train(
         divisor = max(batches, 1)
         epoch_records.append({"mae_loss": mae_total / divisor, "proto_loss": proto_total / divisor, "total_loss": total_total / divisor})
 
+    model.eval()
+    eval_probabilities, eval_labels = [], []
+    with torch.no_grad():
+        support_embeddings = model.encoder(support_images)
+        prototypes = model.proto_head.compute_prototypes(support_embeddings, support_labels)
+        for images, labels in eval_query_loader:
+            _, probabilities = model.proto_head.predict(
+                model.encoder(images.to(device)), prototypes
+            )
+            eval_probabilities.append(probabilities[:, 1].cpu())
+            eval_labels.append(torch.as_tensor(labels).long())
+    eval_metrics = evaluate(
+        torch.cat(eval_labels).numpy(), torch.cat(eval_probabilities).numpy()
+    )
+
     final = epoch_records[-1]
     print(f"[Hospital {hospital_id}] MAE Loss: {final['mae_loss']:.4f} | Proto Loss: {final['proto_loss']:.4f} | Total Loss: {final['total_loss']:.4f}")
     return {
         "model_weights": model.get_federated_weights(),
         "num_samples": len(unlabeled_loader.dataset),
         "epoch_losses": epoch_records,
+        "query_metrics": eval_metrics,
         **final,
     }

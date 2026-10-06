@@ -49,6 +49,7 @@ from src.datasets.loader import (
 from src.datasets.splitter import split_nih_to_hospitals, load_hospital_indices
 from src.models.mae import build_mae
 from src.client.flame_local_train import flame_local_train
+from src.client.local_train import split_client_support_train_eval_indices
 from src.server.server import FederatedServer
 
 
@@ -179,7 +180,11 @@ def main():
     if dry_run:
         print("[DRY-RUN] Using synthetic data — no real datasets required.\n")
         hospital_loaders = _build_synthetic_hospital_loaders(
-            num_hospitals, batch_size, image_size
+            num_hospitals,
+            batch_size,
+            image_size,
+            few_shot_k=int(getattr(getattr(config, "flame", config.finetuning), "few_shot_k", config.finetuning.few_shot_k)),
+            seed=int(config.finetuning.seed),
         )
         shenzhen_loader   = DataLoader(SyntheticLabeledDataset(20, image_size), batch_size=8)
         montgomery_loader = DataLoader(SyntheticLabeledDataset(20, image_size), batch_size=8)
@@ -287,6 +292,13 @@ def main():
             "mean_total_loss": float(np.mean(total_losses)),
             "hospital_losses": [{"mae": a, "proto": p, "total": t} for a, p, t in zip(mae_losses, proto_losses, total_losses)],
             "sample_counts": sample_counts,
+            "client_query_metrics": [
+                {
+                    name: float(result["query_metrics"][name])
+                    for name in ("auc", "accuracy", "sensitivity", "specificity", "f1", "balanced_accuracy")
+                }
+                for result in hospital_results
+            ],
         }
         if eval_metrics:
             log_entry["eval_metrics"] = eval_metrics
@@ -353,7 +365,7 @@ def _train_sequential(
 ) -> List[Dict[str, Any]]:
     """Train hospitals one-by-one (default mode)."""
     results = []
-    for hospital_id, (loader, support_loader) in enumerate(hospital_loaders, start=1):
+    for hospital_id, (loader, support_loader, proto_train_query_loader, eval_query_loader) in enumerate(hospital_loaders, start=1):
         # Give each hospital a fresh copy of the global model
         hospital_model = copy.deepcopy(global_model)
         result = flame_local_train(
@@ -361,6 +373,8 @@ def _train_sequential(
             model=hospital_model,
             unlabeled_loader=loader,
             support_loader=support_loader,
+            proto_train_query_loader=proto_train_query_loader,
+            eval_query_loader=eval_query_loader,
             config=config,
             global_weights=global_weights,
             device=device,
@@ -380,7 +394,7 @@ def _train_parallel(
     results = [None] * len(hospital_loaders)
 
     def _train_one(args):
-        hospital_id, loader, support_loader, hospital_device = args
+        hospital_id, loader, support_loader, proto_train_query_loader, eval_query_loader, hospital_device = args
         hospital_model = copy.deepcopy(global_model)
         print(f"[Hospital {hospital_id}] Training on {hospital_device}")
         return hospital_id, flame_local_train(
@@ -388,6 +402,8 @@ def _train_parallel(
             model=hospital_model,
             unlabeled_loader=loader,
             support_loader=support_loader,
+            proto_train_query_loader=proto_train_query_loader,
+            eval_query_loader=eval_query_loader,
             config=config,
             global_weights=global_weights,
             device=hospital_device,
@@ -398,9 +414,17 @@ def _train_parallel(
         futures = {
             pool.submit(
                 _train_one,
-                (hid, loader, support_loader, training_devices[(hid - 1) % len(training_devices)]),
+                (
+                    hid,
+                    loader,
+                    support_loader,
+                    proto_train_query_loader,
+                    eval_query_loader,
+                    training_devices[(hid - 1) % len(training_devices)],
+                ),
             ): hid
-            for hid, (loader, support_loader) in enumerate(hospital_loaders, start=1)
+            for hid, (loader, support_loader, proto_train_query_loader, eval_query_loader)
+            in enumerate(hospital_loaders, start=1)
         }
         for future in as_completed(futures):
             hospital_id, result = future.result()
@@ -411,11 +435,20 @@ def _train_parallel(
 
 # ─── Loader Builders ─────────────────────────────────────────────────────────
 
-def _build_synthetic_hospital_loaders(num_hospitals, batch_size, image_size):
+def _build_synthetic_hospital_loaders(num_hospitals, batch_size, image_size, few_shot_k=5, seed=42):
+    unlabeled_dataset = SyntheticNIHDataset(size=64, image_size=image_size)
+    labeled_dataset = SyntheticLabeledDataset(size=40, image_size=image_size)
+    client_splits = split_client_support_train_eval_indices(
+        labeled_dataset.get_labels(), num_hospitals, few_shot_k, seed=seed
+    )
     return [
-        (DataLoader(SyntheticNIHDataset(size=64, image_size=image_size), batch_size=batch_size, shuffle=True),
-         DataLoader(SyntheticLabeledDataset(size=10, image_size=image_size), batch_size=10, shuffle=False))
-        for _ in range(num_hospitals)
+        (
+            DataLoader(unlabeled_dataset, batch_size=batch_size, shuffle=True),
+            DataLoader(Subset(labeled_dataset, support.tolist()), batch_size=len(support)),
+            DataLoader(Subset(labeled_dataset, train_query.tolist()), batch_size=len(train_query)),
+            DataLoader(Subset(labeled_dataset, eval_query.tolist()), batch_size=len(eval_query)),
+        )
+        for support, train_query, eval_query in client_splits
     ]
 
 
@@ -485,7 +518,7 @@ def _build_real_loaders(config, num_hospitals, batch_size, image_size):
             shuffle=True,
             num_workers=2 if os.name != "nt" else 0, # num_workers > 0 can be unstable on Windows in some envs
             pin_memory=pin_memory,
-        ), None)
+        ), None, None, None)
         for indices in hospital_indices_list
     ]
 
@@ -500,20 +533,40 @@ def _build_real_loaders(config, num_hospitals, batch_size, image_size):
     flame_config = getattr(config, "flame", config.finetuning)
     support_k = int(getattr(flame_config, "few_shot_k", config.finetuning.few_shot_k))
     labels = np.asarray(shenzhen_dataset.get_labels())
-    rng = np.random.default_rng(int(config.finetuning.seed))
-    for hospital_id in range(num_hospitals):
-        selected = []
-        for class_id in (0, 1):
-            candidates = np.flatnonzero(labels == class_id)
-            if len(candidates) < support_k:
-                raise ValueError(f"Shenzhen class {class_id} has fewer than {support_k} samples.")
-            selected.extend(rng.choice(candidates, support_k, replace=False).tolist())
+    client_splits = split_client_support_train_eval_indices(
+        labels,
+        num_hospitals,
+        support_k,
+        seed=int(config.finetuning.seed),
+    )
+    for hospital_id, (support_indices, train_query_indices, eval_query_indices) in enumerate(client_splits):
         support_loader = DataLoader(
-            Subset(shenzhen_dataset, selected), batch_size=len(selected), shuffle=False,
+            Subset(shenzhen_dataset, support_indices.tolist()),
+            batch_size=len(support_indices), shuffle=False,
             num_workers=0, pin_memory=pin_memory,
         )
-        hospital_loaders[hospital_id] = (hospital_loaders[hospital_id][0], support_loader)
-        print(f"[Support] Hospital {hospital_id + 1}: Normal={support_k}, TB={support_k} (per-hospital sampling; reuse allowed)")
+        proto_train_query_loader = DataLoader(
+            Subset(shenzhen_dataset, train_query_indices.tolist()),
+            batch_size=len(train_query_indices), shuffle=False,
+            num_workers=0, pin_memory=pin_memory,
+        )
+        eval_query_loader = DataLoader(
+            Subset(shenzhen_dataset, eval_query_indices.tolist()),
+            batch_size=len(eval_query_indices), shuffle=False,
+            num_workers=0, pin_memory=pin_memory,
+        )
+        nih_loader = hospital_loaders[hospital_id][0]
+        hospital_loaders[hospital_id] = (
+            nih_loader,
+            support_loader,
+            proto_train_query_loader,
+            eval_query_loader,
+        )
+        print(
+            f"[Shenzhen] Hospital {hospital_id + 1}: support={len(support_indices)}, "
+            f"prototype-train-query={len(train_query_indices)}, "
+            f"evaluation-query={len(eval_query_indices)}"
+        )
 
     montgomery_dataset = MontgomeryDataset(
         root_dir=config.data.montgomery_path,
