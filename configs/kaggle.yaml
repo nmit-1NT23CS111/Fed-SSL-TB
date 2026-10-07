@@ -26,8 +26,8 @@ federated:
   min_client_samples: 500
 
 few_shot:
-  shots_per_class: 5
-  train_queries_per_class: 5
+  shots_per_class: 50
+  train_queries_per_class: 50
   seed: 42
 
 loss:
