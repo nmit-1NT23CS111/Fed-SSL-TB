@@ -1,6 +1,8 @@
 name: CI Validation
 
 on:
+  pull_request:
+    branches: [architecture-fix]
   push:
     branches: [architecture-fix, ci-validation-20261007]
   workflow_dispatch:
