@@ -2,33 +2,70 @@ name: CI Validation
 
 on:
   pull_request:
-    branches: [architecture-fix]
+    branches: [main]
   push:
-    branches: [architecture-fix, ci-validation-20261007]
+    branches: [ci-validation-20261007]
   workflow_dispatch:
 
 jobs:
-  test:
+  unit:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest
-
+          pip install pytest fastapi uvicorn python-multipart
       - name: Syntax check
         run: python -m compileall -q src *.py
-
       - name: Unit and regression tests
-        run: python -m pytest -q
+        run: python -m pytest -q test_flame_architecture.py test_few_shot.py
+      - name: Device and integration tests
+        run: python -m pytest -q test_device.py
 
-      - name: Smoke test
-        run: python test_smoke.py
+  config:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install config dependencies
+        run: |
+          python -m pip install pyyaml
+      - name: Validate configurations
+        run: |
+          python - <<'PY'
+          from src.utils.config import load_config
+          for path in ("configs/default.yaml", "configs/kaggle.yaml"):
+              cfg = load_config(path)
+              print(path, "OK")
+              print("  few_shot:", vars(cfg.few_shot))
+              print("  finetuning:", vars(cfg.finetuning))
+              print("  loss:", vars(cfg.loss) if hasattr(cfg, "loss") else None)
+          PY
+
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest fastapi uvicorn python-multipart
+      - name: Run smoke script with safe default config path
+        run: |
+          mkdir -p /tmp/fedssl-checkpoints /tmp/fedssl-logs
+          sed 's#/kaggle/working/Fed-SSL-TB/experiments/checkpoints#/tmp/fedssl-checkpoints#g; s#/kaggle/working/Fed-SSL-TB/experiments/logs#/tmp/fedssl-logs#g' configs/kaggle.yaml > /tmp/fedssl-kaggle-ci.yaml
+          python test_smoke.py --config=/tmp/fedssl-kaggle-ci.yaml
