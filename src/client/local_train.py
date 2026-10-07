@@ -55,13 +55,7 @@ def split_client_support_train_eval_indices(
     seed: int = 42,
     train_queries_per_class: int = 1,
 ) -> list[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
-    """Create client support, prototype-training, and held-out evaluation indices.
-
-    Evaluation indices are reserved globally first and partitioned across
-    clients. Client training roles are sampled only from the remaining pool;
-    training examples may be reused by different clients, but roles never
-    overlap within a client and no evaluation example enters training.
-    """
+    """Default behavior: reserve eval globally, then partition remaining samples across hospitals without reuse."""
     labels = torch.as_tensor(labels, dtype=torch.long).cpu()
     if num_clients < 1:
         raise ValueError("num_clients must be at least 1.")
@@ -69,34 +63,36 @@ def split_client_support_train_eval_indices(
         raise ValueError("k and train_queries_per_class must be at least 1.")
 
     rng = np.random.default_rng(seed)
-    train_by_class = {}
-    eval_by_client = [ [] for _ in range(num_clients) ]
+    class_chunks: dict[int, list[np.ndarray]] = {}
+    eval_by_client = [[] for _ in range(num_clients)]
     for class_id in range(NUM_CLASSES):
         class_indices = np.flatnonzero(labels.numpy() == class_id)
-        if len(class_indices) < num_clients + k + train_queries_per_class:
+        required = num_clients + k + train_queries_per_class
+        if len(class_indices) < required:
             raise ValueError(
-                f"Class {class_id} has {len(class_indices)} samples; at least "
-                f"{num_clients + k + train_queries_per_class} are required."
+                f"Class {class_id} has {len(class_indices)} samples; at least {required} are required."
             )
         rng.shuffle(class_indices)
         eval_indices = class_indices[:num_clients]
-        train_by_class[class_id] = class_indices[num_clients:]
-        for client_id, index in enumerate(eval_indices):
-            eval_by_client[client_id].append(int(index))
+        remaining = class_indices[num_clients:]
+        for client_id, idx in enumerate(eval_indices):
+            eval_by_client[client_id].append(int(idx))
+        class_chunks[class_id] = np.array_split(remaining, num_clients)
 
     client_splits = []
     for client_id in range(num_clients):
-        client_rng = np.random.default_rng(seed + client_id + 1)
         support_indices = []
         train_query_indices = []
         for class_id in range(NUM_CLASSES):
-            candidates = client_rng.choice(
-                train_by_class[class_id],
-                size=k + train_queries_per_class,
-                replace=False,
-            ).tolist()
-            support_indices.extend(candidates[:k])
-            train_query_indices.extend(candidates[k:])
+            client_slice = class_chunks[class_id][client_id]
+            if len(client_slice) < k + train_queries_per_class:
+                raise ValueError(
+                    f"Client {client_id} does not have enough unique samples for class {class_id}."
+                )
+            client_rng = np.random.default_rng(seed + client_id + class_id + 7)
+            perm = client_rng.permutation(client_slice)
+            support_indices.extend(perm[:k].tolist())
+            train_query_indices.extend(perm[k : k + train_queries_per_class].tolist())
         client_splits.append((
             torch.tensor(sorted(support_indices), dtype=torch.long),
             torch.tensor(sorted(train_query_indices), dtype=torch.long),

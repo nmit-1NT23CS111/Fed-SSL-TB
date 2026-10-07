@@ -5,46 +5,34 @@ data:
   processed_dir: "data/processed"
   image_size: 224
   num_hospitals: 10
-  split_strategy: non_iid   # options: iid, non_iid
-  split_alpha: 1.0          # Balance parameter for non-iid split
-
+  split_strategy: non_iid
+  split_alpha: 1.0
 
 model:
-  backbone: "vit_tiny"        # options: resnet50, vit_small
+  backbone: "vit_tiny"
   embed_dim: 192
   mask_ratio: 0.80
   decoder_depth: 4
 
 ssl:
   epochs_per_round: 2
-  batch_size: 6
+  batch_size: 16
   lr: 1.0e-3
-  limit_samples: 20000
-  optimizer: adamw
 
 federated:
   rounds: 30
-  aggregation: fedprox       # options: fedavg, fedprox
+  aggregation: fedprox
   fedprox_mu: 0.01
+  min_client_samples: 500
 
-finetuning:
-  few_shot_k: 5             # 5-shot = 5 samples per class, 10 total for binary TB
-  projection_dim: 128
-  epochs: 100
-  lr: 1.0e-3
-  freeze_encoder: true
+few_shot:
+  shots_per_class: 5
+  train_queries_per_class: 5
   seed: 42
-  support_sampling: random_stratified
 
-evaluation:
-  test_set: montgomery
-  metrics:
-    - auc
-    - accuracy
-    - sensitivity
-    - specificity
-    - f1
-    - balanced_accuracy
+loss:
+  lambda_mae: 0.70
+  lambda_proto: 0.30
 
 logging:
   log_dir: experiments/logs/

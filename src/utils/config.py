@@ -1,51 +1,32 @@
-"""
-src/utils/config.py
--------------------
-Load and validate YAML config; return as nested SimpleNamespace.
-Supports CLI overrides: --federated.rounds=30
-"""
+"""Load and validate the YAML config used by the encoder-only federated pipeline."""
 
 import argparse
-import sys
-import yaml
 from types import SimpleNamespace
 
+import yaml
 
-# ─── Required top-level keys ────────────────────────────────────────────────
-REQUIRED_SECTIONS = ["data", "model", "ssl", "federated", "finetuning", "evaluation", "logging"]
+
+REQUIRED_SECTIONS = ["data", "model", "ssl", "federated", "few_shot", "logging"]
 
 
 def _dict_to_namespace(d: dict) -> SimpleNamespace:
-    """Recursively convert a dict into a SimpleNamespace."""
     ns = SimpleNamespace()
-    for k, v in d.items():
-        if isinstance(v, dict):
-            setattr(ns, k, _dict_to_namespace(v))
+    for key, value in d.items():
+        if isinstance(value, dict):
+            setattr(ns, key, _dict_to_namespace(value))
         else:
-            setattr(ns, k, v)
+            setattr(ns, key, value)
     return ns
 
 
-def _namespace_to_dict(ns) -> dict:
-    """Recursively convert a SimpleNamespace back to a dict."""
-    if not isinstance(ns, SimpleNamespace):
-        return ns
-    return {k: _namespace_to_dict(v) for k, v in vars(ns).items()}
-
-
 def _apply_override(config_dict: dict, key_path: str, value: str) -> None:
-    """
-    Apply a dotted key override to a nested dict.
-    e.g. key_path='federated.rounds', value='30'
-    """
     keys = key_path.split(".")
     d = config_dict
-    for k in keys[:-1]:
-        if k not in d:
-            raise KeyError(f"Config override key '{k}' not found in config.")
-        d = d[k]
+    for key in keys[:-1]:
+        if key not in d:
+            raise KeyError(f"Config override key '{key}' not found in config.")
+        d = d[key]
 
-    # Attempt type coercion: bool → int → float → str
     raw = value
     if raw.lower() in ("true", "false"):
         coerced = raw.lower() == "true"
@@ -57,54 +38,53 @@ def _apply_override(config_dict: dict, key_path: str, value: str) -> None:
                 coerced = float(raw)
             except ValueError:
                 coerced = raw
-
     d[keys[-1]] = coerced
 
 
+def _ensure_aliases(config_dict: dict) -> None:
+    if "few_shot" in config_dict and "finetuning" not in config_dict:
+        config_dict["finetuning"] = config_dict["few_shot"]
+    if "finetuning" in config_dict and "few_shot" not in config_dict:
+        config_dict["few_shot"] = config_dict["finetuning"]
+    if "loss" not in config_dict:
+        config_dict["loss"] = {"lambda_mae": 0.70, "lambda_proto": 0.30}
+    if "evaluation" not in config_dict:
+        config_dict["evaluation"] = {"test_set": "montgomery", "metrics": ["auc", "accuracy", "sensitivity", "specificity", "f1", "balanced_accuracy"]}
+
+
 def _validate(config_dict: dict) -> None:
-    """Validate that all required top-level sections exist."""
-    missing = [s for s in REQUIRED_SECTIONS if s not in config_dict]
+    missing = [section for section in REQUIRED_SECTIONS if section not in config_dict]
     if missing:
-        raise ValueError(
-            f"Config is missing required sections: {missing}. "
-            f"Check your YAML file."
-        )
+        raise ValueError(f"Config is missing required sections: {missing}. Check the YAML file.")
 
 
 def load_config(path: str = "configs/default.yaml") -> SimpleNamespace:
-    """
-    Load YAML config from `path`, apply any CLI `--key.subkey=value` overrides,
-    validate required fields, and return as a nested SimpleNamespace.
-
-    CLI usage:
-        python simulation.py --config configs/default.yaml --federated.rounds=30
-    """
-    # Parse known args: --config and any --section.key=value overrides
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--config", type=str, default=path)
     known, unknown = parser.parse_known_args()
 
-    config_path = known.config
+    with open(known.config, "r", encoding="utf-8") as handle:
+        config_dict = yaml.safe_load(handle) or {}
 
-    # Load YAML
-    with open(config_path, "r") as f:
-        config_dict = yaml.safe_load(f)
+    _ensure_aliases(config_dict)
 
-    # Apply CLI overrides (format: --section.key=value)
     for arg in unknown:
-        if arg.startswith("--"):
-            arg = arg[2:]  # strip leading --
-            if "=" in arg:
-                key_path, value = arg.split("=", 1)
-            else:
-                # flag without value (treat as True)
-                key_path, value = arg, "true"
-            try:
-                _apply_override(config_dict, key_path, value)
-            except KeyError as e:
-                print(f"[WARNING] CLI override ignored: {e}")
+        if not arg.startswith("--"):
+            continue
+        arg = arg[2:]
+        if "=" in arg:
+            key_path, value = arg.split("=", 1)
+        else:
+            key_path, value = arg, "true"
+        try:
+            _apply_override(config_dict, key_path, value)
+        except KeyError as exc:
+            print(f"[WARNING] CLI override ignored: {exc}")
 
-    # Validate
     _validate(config_dict)
-
-    return _dict_to_namespace(config_dict)
+    namespace = _dict_to_namespace(config_dict)
+    if hasattr(namespace, "few_shot") and not hasattr(namespace, "finetuning"):
+        namespace.finetuning = namespace.few_shot
+    if hasattr(namespace, "finetuning") and not hasattr(namespace, "few_shot"):
+        namespace.few_shot = namespace.finetuning
+    return namespace

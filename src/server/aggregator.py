@@ -14,6 +14,18 @@ import copy
 from typing import List, Dict, Any
 
 
+def _as_encoder_state_dict(payload: Dict[str, Any]) -> Dict[str, Any]:
+    if isinstance(payload, dict) and "encoder" in payload and isinstance(payload["encoder"], dict):
+        return payload["encoder"]
+    return payload
+
+
+def _wrap_encoder_state_dict(payload: Dict[str, Any]) -> Dict[str, Any]:
+    if isinstance(payload, dict) and "encoder" in payload and isinstance(payload["encoder"], dict):
+        return payload
+    return {"encoder": payload}
+
+
 def fedavg(
     encoder_weights_list: List[Dict[str, Any]],
     sample_counts: List[int],
@@ -36,6 +48,7 @@ def fedavg(
     )
     assert len(encoder_weights_list) > 0, "No weights to aggregate."
 
+    normalized = [_as_encoder_state_dict(payload) for payload in encoder_weights_list]
     total_samples = sum(sample_counts)
     if total_samples == 0:
         raise ValueError("Total sample count is 0 — cannot compute weighted average.")
@@ -43,17 +56,8 @@ def fedavg(
     # Compute per-hospital weights
     weights = [n / total_samples for n in sample_counts]
 
-    # Recurse through encoder, decoder, and proto_head component state dicts.
-    if "encoder" in encoder_weights_list[0]:
-        return {
-            component: fedavg(
-                [weights[component] for weights in encoder_weights_list], sample_counts
-            )
-            for component in encoder_weights_list[0]
-        }
-
     # Initialize aggregated state_dict with zeros (same structure as first hospital)
-    agg_weights = copy.deepcopy(encoder_weights_list[0])
+    agg_weights = copy.deepcopy(normalized[0])
     for key in agg_weights:
         agg_weights[key] = agg_weights[key].float() * weights[0]
 
@@ -61,12 +65,12 @@ def fedavg(
     for i in range(1, len(encoder_weights_list)):
         w = weights[i]
         for key in agg_weights:
-            if encoder_weights_list[i][key].dtype.is_floating_point:
-                agg_weights[key] += encoder_weights_list[i][key].float() * w
+            if normalized[i][key].dtype.is_floating_point:
+                agg_weights[key] += normalized[i][key].float() * w
             else:
-                agg_weights[key] = encoder_weights_list[0][key].clone()
+                agg_weights[key] = normalized[0][key].clone()
 
-    return agg_weights
+    return _wrap_encoder_state_dict(agg_weights)
 
 
 def fedprox(
