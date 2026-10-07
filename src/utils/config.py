@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 
 # ─── Required top-level keys ────────────────────────────────────────────────
-REQUIRED_SECTIONS = ["data", "model", "ssl", "federated", "finetuning", "evaluation", "logging"]
+REQUIRED_SECTIONS = ["data", "model", "ssl", "federated", "finetuning", "evaluation", "logging", "few_shot", "loss"]
 
 
 def _dict_to_namespace(d: dict) -> SimpleNamespace:
@@ -62,13 +62,21 @@ def _apply_override(config_dict: dict, key_path: str, value: str) -> None:
 
 
 def _validate(config_dict: dict) -> None:
-    """Validate that all required top-level sections exist."""
+    """Validate that all required top-level sections exist. Missing sections are populated with defaults to keep backwards compatibility."""
+    defaults = {
+        "seed": 42,
+        "few_shot": {"support_shots_per_class": 25, "train_queries_per_class": 50, "eval_queries_per_class": 25},
+        "loss": {"lambda_mae": 0.50, "lambda_proto": 0.25, "lambda_ce": 0.25},
+        "model": {"pretrained": False, "projection_dim": 128, "classifier_hidden_dim": 64},
+        "federated": {"min_client_samples": 500, "fedprox_mu": 0.01, "federate_decoder": False, "federate_proto_head": False, "federate_classifier": False},
+        "evaluation": {"primary_metric": "auc", "threshold_method": "youdan"},
+    }
+    for key, value in defaults.items():
+        if key not in config_dict:
+            config_dict[key] = value
     missing = [s for s in REQUIRED_SECTIONS if s not in config_dict]
     if missing:
-        raise ValueError(
-            f"Config is missing required sections: {missing}. "
-            f"Check your YAML file."
-        )
+        raise ValueError(f"Config is missing required sections: {missing}. Check your YAML file.")
 
 
 def load_config(path: str = "configs/default.yaml") -> SimpleNamespace:

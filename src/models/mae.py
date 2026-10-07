@@ -47,6 +47,7 @@ class MaskedAutoencoder(nn.Module):
         in_channels: int = 3,
         projection_dim: int = 128,
         proto_head: nn.Module = None,
+        classifier_hidden_dim: int = 64,
     ):
         super().__init__()
         assert image_size % patch_size == 0, "image_size must be divisible by patch_size"
@@ -60,7 +61,12 @@ class MaskedAutoencoder(nn.Module):
         self.proto_head = proto_head or PrototypicalHead(
             embed_dim=encoder.embed_dim, projection_dim=projection_dim
         )
-        self.num_patches = (image_size // patch_size) ** 2   # 196 for 224/16
+        self.classifier_head = nn.Sequential(
+            nn.Linear(encoder.embed_dim, classifier_hidden_dim),
+            nn.ReLU(),
+            nn.Linear(classifier_hidden_dim, 1),
+        )
+        self.num_patches = (image_size // patch_size) ** 2
 
         # For ResNet50: we need a patch embedding layer to get per-patch tokens
         # For ViT: the backbone already tokenizes patches
@@ -238,27 +244,25 @@ class MaskedAutoencoder(nn.Module):
     # ─── Federated Utility ───────────────────────────────────────────────────
 
     def get_encoder_weights(self) -> Dict[str, Any]:
-        """
-        Return only the encoder state_dict for federated server sharing.
-        """
-        return {k: v.clone() for k, v in self.encoder.state_dict().items()}
+        """Return only the encoder state_dict for federated server sharing."""
+        return {k: v.detach().cpu().clone() for k, v in self.encoder.state_dict().items()}
 
     def get_federated_weights(self) -> Dict[str, Dict[str, Any]]:
-        """Return every trainable component shared by the FLAME server."""
-        return {
-            "encoder": {k: v.detach().cpu().clone() for k, v in self.encoder.state_dict().items()},
-            "decoder": {k: v.detach().cpu().clone() for k, v in self.decoder.state_dict().items()},
-            "proto_head": {k: v.detach().cpu().clone() for k, v in self.proto_head.state_dict().items()},
-        }
+        """Return the encoder-only global state used for server aggregation by default."""
+        return {"encoder": self.get_encoder_weights()}
 
     def load_federated_weights(self, state: Dict[str, Dict[str, Any]]) -> None:
-        """Load a complete FLAME state, while accepting old encoder-only states."""
-        if "encoder" not in state:
-            self.load_encoder_weights(state)
+        """Load a federated state while preserving backward compatibility with legacy enc+dec+proto payloads."""
+        if not isinstance(state, dict):
+            raise TypeError("Federated state must be a dictionary.")
+        if "encoder" in state:
+            self.load_encoder_weights(state["encoder"])
+            if "decoder" in state and hasattr(self, "decoder"):
+                self.decoder.load_state_dict(state["decoder"])
+            if "proto_head" in state and hasattr(self, "proto_head"):
+                self.proto_head.load_state_dict(state["proto_head"])
             return
-        self.encoder.load_state_dict(state["encoder"])
-        self.decoder.load_state_dict(state["decoder"])
-        self.proto_head.load_state_dict(state["proto_head"])
+        self.load_encoder_weights(state)
 
     def load_encoder_weights(self, state_dict: Dict[str, Any]) -> None:
         """Load encoder weights from a state_dict (from federated server)."""
@@ -290,6 +294,8 @@ def build_mae(
     patch_size: int = 16,
     in_channels: int = 3,
     projection_dim: int = 128,
+    pretrained: bool = False,
+    classifier_hidden_dim: int = 64,
 ) -> MaskedAutoencoder:
     """
     Build a full MaskedAutoencoder model with ViT-Tiny backbone.
@@ -308,7 +314,7 @@ def build_mae(
     """
     num_patches = (image_size // patch_size) ** 2
 
-    encoder = get_encoder(backbone=backbone, embed_dim=embed_dim)
+    encoder = get_encoder(backbone=backbone, embed_dim=embed_dim, pretrained=pretrained)
     decoder = MAEDecoder(
         embed_dim=embed_dim,
         num_patches=num_patches,
@@ -326,5 +332,6 @@ def build_mae(
         patch_size=patch_size,
         in_channels=in_channels,
         projection_dim=projection_dim,
+        classifier_hidden_dim=classifier_hidden_dim,
     )
 

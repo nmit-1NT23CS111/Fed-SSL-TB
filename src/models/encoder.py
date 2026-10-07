@@ -15,16 +15,13 @@ from typing import Tuple
 # ─── ResNet50 Encoder ─────────────────────────────────────────────────────────
 
 class ResNet50Encoder(nn.Module):
-    """
-    ResNet50 backbone with the final FC layer replaced by a
-    linear projection head: Linear(2048 → embed_dim).
-    """
+    """ResNet50 backbone with the final FC layer replaced by a linear projection head."""
 
-    def __init__(self, embed_dim: int = 512):
+    def __init__(self, embed_dim: int = 512, pretrained: bool = False):
         super().__init__()
         import torchvision.models as models
 
-        backbone = models.resnet50(weights=None)  # pretrained=False equivalent
+        backbone = models.resnet50(weights=models.ResNet50_Weights.DEFAULT if pretrained else None)
 
         # Remove the original avgpool + fc; we keep everything up to layer4
         self.feature_extractor = nn.Sequential(
@@ -60,12 +57,9 @@ class ResNet50Encoder(nn.Module):
 # ─── ViT-Small Encoder ────────────────────────────────────────────────────────
 
 class ViTSmallEncoder(nn.Module):
-    """
-    ViT-Small (patch16, 224) from timm.
-    Head replaced with Linear(384 → embed_dim).
-    """
+    """ViT-Small (patch16, 224) from timm."""
 
-    def __init__(self, embed_dim: int = 512):
+    def __init__(self, embed_dim: int = 512, pretrained: bool = False):
         super().__init__()
         try:
             import timm
@@ -74,8 +68,8 @@ class ViTSmallEncoder(nn.Module):
 
         self.vit = timm.create_model(
             "vit_small_patch16_224",
-            pretrained=False,
-            num_classes=0,  # Remove classification head → returns CLS token (384-dim)
+            pretrained=pretrained,
+            num_classes=0,
         )
         vit_dim = self.vit.embed_dim   # 384 for vit_small
         self.projection = nn.Linear(vit_dim, embed_dim)
@@ -98,16 +92,9 @@ class ViTSmallEncoder(nn.Module):
 # ─── ViT-Tiny Encoder (Primary Lightweight Backbone) ─────────────────────────
 
 class ViTTinyEncoder(nn.Module):
-    """
-    ViT-Tiny (patch16, 224) from timm.
-    Primary lightweight backbone for privacy-preserving FedSSL TB detection.
-    
-    Dimensions:
-        - Input  : (B, 3, 224, 224)
-        - Latent : (B, 192) embedding
-    """
+    """ViT-Tiny (patch16, 224) from timm."""
 
-    def __init__(self, embed_dim: int = 192):
+    def __init__(self, embed_dim: int = 192, pretrained: bool = False):
         super().__init__()
         try:
             import timm
@@ -116,8 +103,8 @@ class ViTTinyEncoder(nn.Module):
 
         self.vit = timm.create_model(
             "vit_tiny_patch16_224",
-            pretrained=False,
-            num_classes=0,  # Returns sequence or pooled features
+            pretrained=pretrained,
+            num_classes=0,
         )
         vit_dim = self.vit.embed_dim   # 192 for vit_tiny
         self.projection = nn.Linear(vit_dim, embed_dim)
@@ -153,13 +140,11 @@ class ViTTinyEncoder(nn.Module):
 
 # ─── Factory ─────────────────────────────────────────────────────────────────
 
-def get_encoder(backbone: str = "vit_tiny", embed_dim: int = 192) -> nn.Module:
-    """
-    Create and return the ViT-Tiny encoder backbone.
-
-    Args:
-        backbone  : 'vit_tiny' (recommended lightweight backbone)
-        embed_dim : Output embedding dimensionality (default 192)
-    """
-    return ViTTinyEncoder(embed_dim=embed_dim)
+def get_encoder(backbone: str = "vit_tiny", embed_dim: int = 192, pretrained: bool = False) -> nn.Module:
+    """Create and return the configured encoder backbone."""
+    if backbone.lower() == "resnet50":
+        return ResNet50Encoder(embed_dim=embed_dim, pretrained=pretrained)
+    if backbone.lower() == "vit_small":
+        return ViTSmallEncoder(embed_dim=embed_dim, pretrained=pretrained)
+    return ViTTinyEncoder(embed_dim=embed_dim, pretrained=pretrained)
 

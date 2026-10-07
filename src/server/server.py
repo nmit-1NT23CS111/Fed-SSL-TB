@@ -16,6 +16,7 @@ import copy
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
+import numpy as np
 import torch
 import torch.nn as nn
 
@@ -44,7 +45,7 @@ class FederatedServer:
         self.checkpoint_dir = Path(config.logging.checkpoint_dir)
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-        # Best model tracking (by Montgomery AUC)
+        # Best model tracking (by validation AUC on Shenzhen data)
         self.best_auc: float = 0.0
         self.best_round: int = -1
         self.best_encoder_weights: Optional[Dict[str, Any]] = None
@@ -56,12 +57,7 @@ class FederatedServer:
     # ─── Model Initialization ────────────────────────────────────────────────
 
     def initialize_global_model(self) -> MaskedAutoencoder:
-        """
-        Build the global MAE with random initialization.
-
-        Returns:
-            global_model : MaskedAutoencoder
-        """
+        """Build the global MAE with random initialization."""
         self.global_model = build_mae(
             backbone=self.config.model.backbone,
             embed_dim=self.config.model.embed_dim,
@@ -69,6 +65,8 @@ class FederatedServer:
             decoder_depth=self.config.model.decoder_depth,
             image_size=self.config.data.image_size,
             projection_dim=getattr(self.config.model, "projection_dim", 128),
+            pretrained=bool(getattr(self.config.model, "pretrained", False)),
+            classifier_hidden_dim=getattr(self.config.model, "classifier_hidden_dim", 64),
         ).to(self.device)
 
         print(
@@ -152,16 +150,7 @@ class FederatedServer:
         round_num: int,
         metrics: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """
-        Save global encoder checkpoint after each federated round.
-
-        Args:
-            round_num : Current round number (0-indexed)
-            metrics   : Optional evaluation metrics dict
-
-        Returns:
-            Path to saved checkpoint file
-        """
+        """Save the latest encoder checkpoint and keep the best validation checkpoint."""
         assert self.global_model is not None
 
         checkpoint = {
@@ -173,6 +162,7 @@ class FederatedServer:
                 "backbone": self.config.model.backbone,
                 "embed_dim": self.config.model.embed_dim,
                 "mask_ratio": self.config.model.mask_ratio,
+                "pretrained": bool(getattr(self.config.model, "pretrained", False)),
             },
         }
         if metrics:
@@ -181,25 +171,18 @@ class FederatedServer:
         ckpt_path = self.checkpoint_dir / f"flame_round_{round_num:03d}.pt"
         torch.save(checkpoint, str(ckpt_path))
 
-        # Track best model by AUC
-        if metrics and "auc" in metrics:
-            current_auc = metrics["auc"]
+        latest_path = self.checkpoint_dir / "latest_model.pt"
+        torch.save({**checkpoint, "best_auc": self.best_auc, "best_round": self.best_round}, str(latest_path))
+
+        if metrics and "auc" in metrics and np.isfinite(metrics["auc"]):
+            current_auc = float(metrics["auc"])
             if current_auc > self.best_auc:
                 self.best_auc = current_auc
                 self.best_round = round_num
-                self.best_encoder_weights = copy.deepcopy(
-                    self.global_model.get_encoder_weights()
-                )
-                # Save best model separately
-                best_path = self.checkpoint_dir / "best_flame.pt"
-                torch.save(
-                    {**checkpoint, "best_auc": self.best_auc},
-                    str(best_path),
-                )
-                print(
-                    f"  [Server] [BEST MODEL] saved | "
-                    f"Round {round_num} | AUC={self.best_auc:.4f}"
-                )
+                self.best_encoder_weights = copy.deepcopy(self.global_model.get_encoder_weights())
+                best_path = self.checkpoint_dir / "best_model.pt"
+                torch.save({**checkpoint, "best_auc": self.best_auc, "best_round": self.best_round}, str(best_path))
+                print(f"  [Server] [BEST MODEL] saved | Round {round_num} | AUC={self.best_auc:.4f}")
 
         return str(ckpt_path)
 

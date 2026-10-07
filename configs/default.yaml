@@ -1,3 +1,5 @@
+seed: 42
+
 data:
   nih_path: "data/raw/NIH"
   shenzhen_path: "data/raw/Shenzhen"
@@ -5,15 +7,18 @@ data:
   processed_dir: "data/processed"
   image_size: 224
   num_hospitals: 10
-  split_strategy: non_iid   # options: iid, non_iid
-  split_alpha: 1.0          # Balance parameter for non-iid split
-
+  split_strategy: non_iid
+  split_alpha: 1.0
+  min_client_samples: 500
 
 model:
-  backbone: "vit_tiny"        # options: resnet50, vit_small
+  backbone: "vit_tiny"
   embed_dim: 192
+  pretrained: false
   mask_ratio: 0.80
   decoder_depth: 4
+  projection_dim: 128
+  classifier_hidden_dim: 64
 
 ssl:
   epochs_per_round: 2
@@ -24,11 +29,25 @@ ssl:
 
 federated:
   rounds: 30
-  aggregation: fedprox       # options: fedavg, fedprox
+  aggregation: fedprox
   fedprox_mu: 0.01
+  min_client_samples: 500
+  federate_decoder: false
+  federate_proto_head: false
+  federate_classifier: false
+
+few_shot:
+  support_shots_per_class: 25
+  train_queries_per_class: 50
+  eval_queries_per_class: 25
+
+loss:
+  lambda_mae: 0.50
+  lambda_proto: 0.25
+  lambda_ce: 0.25
 
 finetuning:
-  few_shot_k: 5             # 5-shot = 5 samples per class, 10 total for binary TB
+  few_shot_k: 5
   projection_dim: 128
   epochs: 100
   lr: 1.0e-3
@@ -38,14 +57,19 @@ finetuning:
 
 evaluation:
   test_set: montgomery
+  primary_metric: auc
+  threshold_method: youdan
   metrics:
     - auc
     - accuracy
     - sensitivity
     - specificity
+    - precision
     - f1
     - balanced_accuracy
+    - npv
 
 logging:
   log_dir: experiments/logs/
   checkpoint_dir: experiments/checkpoints/
+  results_dir: results/
