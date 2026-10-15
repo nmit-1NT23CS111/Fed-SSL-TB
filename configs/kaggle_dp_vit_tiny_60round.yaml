@@ -15,10 +15,10 @@ model:
   decoder_depth: 4
 
 ssl:
-  epochs_per_round: 2
+  epochs_per_round: 1
   batch_size: 16
   lr: 1.0e-3
-  limit_samples: 30000
+  limit_samples: 20000
   optimizer: adamw
 
 federated:
@@ -54,5 +54,5 @@ evaluation:
     - balanced_accuracy
 
 logging:
-  log_dir: "/kaggle/working/Fed-SSL-TB/experiments/logs/dp_vit_tiny_60round_30000"
-  checkpoint_dir: "/kaggle/working/Fed-SSL-TB/experiments/checkpoints/dp_vit_tiny_60round_30000"
+  log_dir: "/kaggle/working/Fed-SSL-TB/experiments/logs/dp_vit_tiny_60round"
+  checkpoint_dir: "/kaggle/working/Fed-SSL-TB/experiments/checkpoints/dp_vit_tiny_60round"
