@@ -132,13 +132,17 @@ class NIHDataset(Dataset):
 
         print(f"Scanning NIH dataset in {self.root_dir}...")
         
-        # Search recursively for all images
+        # Walk the dataset tree once rather than recursively rescanning it
+        # once for every image extension. This matters on mounted Kaggle datasets.
+        image_extensions = {".png", ".jpg", ".jpeg"}
         all_found = []
-        for ext in ("*.png", "*.jpg", "*.jpeg", "*.PNG", "*.JPG", "*.JPEG"):
-            all_found.extend(list(self.root_dir.rglob(ext)))
-        
-        unique = {str(p.resolve()): p for p in all_found}
-        all_found = list(unique.values())
+        for dirpath, _, filenames in os.walk(self.root_dir):
+            for filename in filenames:
+                if Path(filename).suffix.lower() in image_extensions:
+                    all_found.append(Path(dirpath) / filename)
+
+        # os.walk visits each directory once, so repeated rglob calls and
+        # resolve-based de-duplication are unnecessary here.
         all_found.sort()
         if limit and len(all_found) > limit:
             step = len(all_found) // limit
